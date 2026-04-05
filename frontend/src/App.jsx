@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react'
 import Header from './components/Header'
 import FileExplorer from './components/FileExplorer'
 import Chat from './components/Chat'
+import CommunityPanel from './components/CommunityPanel'
 
 const styles = {
   app: {
@@ -16,6 +17,18 @@ const styles = {
     flex: 1,
     overflow: 'hidden',
     borderTop: '1px solid var(--border)',
+  },
+  leftColumn: {
+    width: '260px',
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+    flexShrink: 0,
+  },
+  subDivider: {
+    height: '1px',
+    background: 'var(--border)',
+    flexShrink: 0,
   },
   divider: {
     width: '1px',
@@ -47,11 +60,15 @@ export default function App() {
     <div style={styles.app}>
       <Header />
       <div style={styles.workspace}>
-        <FileExplorer
-          refreshKey={refreshKey}
-          onFileSelect={setSelectedFile}
-          selectedFile={selectedFile}
-        />
+        <div style={styles.leftColumn}>
+          <FileExplorer
+            refreshKey={refreshKey}
+            onFileSelect={setSelectedFile}
+            selectedFile={selectedFile}
+          />
+          <div style={styles.subDivider} />
+          <CommunityPanel />
+        </div>
         <div style={styles.divider} />
         <Chat
           selectedFile={selectedFile}

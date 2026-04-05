@@ -153,7 +153,10 @@ export default function Header() {
       <div style={S.right}>
         <span style={S.pill}>Free • Open • Private</span>
         <span style={S.meta} title={metaLine}>
-          {meta?.name || 'Nexus'}
+          {meta?.model ? `${meta.name} · ${meta.model}` : (meta?.name || 'Nexus')}
+        </span>
+        <span style={S.meta} title="Community demand">
+          {meta?.feature_requests ?? 0} open requests
         </span>
         <div style={S.status(online)}>
           <div style={S.statusDot(online)} />

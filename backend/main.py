@@ -4,10 +4,13 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Literal
+import json
 import os
 import platform
 import shutil
 import time
+import uuid
+from datetime import datetime, timezone
 
 from agent import run_agent_stream
 from tools import list_files_api, read_file_api, write_file_api, delete_file_api, search_files_api
@@ -25,6 +28,7 @@ app.add_middleware(
 WORKSPACE = os.environ.get("WORKSPACE_DIR", "/workspace")
 os.makedirs(WORKSPACE, exist_ok=True)
 START_TIME = time.time()
+REQUESTS_FILE = os.path.join(WORKSPACE, ".nexus", "feature-requests.json")
 
 
 class ChatMessage(BaseModel):
@@ -40,6 +44,43 @@ class ChatRequest(BaseModel):
 class FileWriteRequest(BaseModel):
     path: str
     content: str
+
+
+class FeatureRequestCreate(BaseModel):
+    title: str
+    details: str = ""
+
+
+def _load_feature_requests() -> list[dict]:
+    try:
+        with open(REQUESTS_FILE, "r") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except FileNotFoundError:
+        return []
+    except Exception:
+        return []
+
+
+def _save_feature_requests(items: list[dict]) -> None:
+    os.makedirs(os.path.dirname(REQUESTS_FILE), exist_ok=True)
+    with open(REQUESTS_FILE, "w") as f:
+        json.dump(items, f, indent=2, ensure_ascii=False)
+
+
+def _sorted_feature_requests(items: list[dict]) -> list[dict]:
+    return sorted(
+        items,
+        key=lambda x: (x.get("votes", 0), x.get("created_at", "")),
+        reverse=True,
+    )
+
+
+def _find_feature_request(items: list[dict], request_id: str) -> dict | None:
+    for item in items:
+        if item.get("id") == request_id:
+            return item
+    return None
 
 
 @app.middleware("http")
@@ -60,9 +101,12 @@ async def health():
 @app.get("/api/meta")
 async def meta():
     usage = shutil.disk_usage(WORKSPACE)
+    feature_requests = _load_feature_requests()
     return {
         "name": "Nexus.computer",
+        "model": os.environ.get("NEXUS_MODEL", "claude-sonnet-4-6"),
         "workspace": WORKSPACE,
+        "feature_requests": len(feature_requests),
         "uptime_seconds": int(time.time() - START_TIME),
         "platform": platform.platform(),
         "python": platform.python_version(),
@@ -85,6 +129,46 @@ async def search(q: str, path: str = ""):
     if not q.strip():
         raise HTTPException(status_code=400, detail="q cannot be empty")
     return search_files_api(WORKSPACE, q, path)
+
+
+@app.get("/api/feature-requests")
+async def list_feature_requests():
+    items = _load_feature_requests()
+    return {"items": _sorted_feature_requests(items)}
+
+
+@app.post("/api/feature-requests")
+async def create_feature_request(body: FeatureRequestCreate):
+    title = body.title.strip()
+    details = body.details.strip()
+    if len(title) < 3:
+        raise HTTPException(status_code=400, detail="title must be at least 3 characters")
+
+    item = {
+        "id": uuid.uuid4().hex,
+        "title": title,
+        "details": details,
+        "status": "open",
+        "votes": 0,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    items = _load_feature_requests()
+    items.insert(0, item)
+    _save_feature_requests(items)
+    return item
+
+
+@app.post("/api/feature-requests/{request_id}/vote")
+async def vote_feature_request(request_id: str):
+    items = _load_feature_requests()
+    item = _find_feature_request(items, request_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="feature request not found")
+
+    item["votes"] = int(item.get("votes", 0)) + 1
+    _save_feature_requests(items)
+    return item
 
 
 @app.post("/api/chat")
