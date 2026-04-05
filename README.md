@@ -1,59 +1,80 @@
 # Nexus.computer
 
-Your personal AI cloud computer — inspired by zo.computer, built under The No Hands Company.
+Nexus is a privacy-first personal cloud computer for The No Hands Company.
+It is built to feel like a calm, powerful, production-grade alternative to the Zo computer experience:
+free as in freedom, open source, private by default, and never paywalled.
 
-## What it is
+## What it does
 
-A personal cloud Linux server with an AI agent (powered by Claude) that has full shell access. Chat with Nexus to:
-- Run bash commands and scripts
-- Create, read, write files
-- Install packages and software
-- Spin up servers and services
-- Build anything
+- Chat with an AI agent that can run shell commands
+- Create, read, write, and delete files in a persistent workspace
+- Build tools, scripts, and services inside your own cloud computer
+- Stream results live in a terminal-style interface
+
+## Philosophy
+
+- No subscriptions
+- No ads
+- No tracking
+- No paywalls
+- No surveillance
+- Free software, forever
+- Private by default
 
 ## Stack
 
-- **Backend**: FastAPI + Anthropic SDK (agentic loop with tool use)
-- **Frontend**: React + Vite (dark terminal aesthetic)
-- **Deployment**: Railway (single Docker service)
+- Backend: FastAPI + Anthropic SDK
+- Frontend: React + Vite
+- Deployment: Railway-ready single service
 
-## Phase 1 Features
+## Production features
 
-- ✅ AI chat with streaming responses
-- ✅ Full bash tool access (workspace sandboxed)
-- ✅ File explorer with tree view + content preview
-- ✅ Read/write/delete files via REST API
-- ✅ Agentic tool loop (multi-step reasoning)
+- Streaming agent chat
+- Workspace file explorer
+- Safe workspace path handling
+- Security headers
+- Health and metadata endpoints
+- Persistent workspace volume support
 
-## Deploy to Railway
-
-1. Fork / push this repo
-2. Create a new Railway project → Deploy from GitHub
-3. Add environment variables:
-   - `ANTHROPIC_API_KEY` — your Anthropic API key
-   - `NEXUS_MODEL` — (optional) defaults to `claude-sonnet-4-6`
-   - `WORKSPACE_DIR` — (optional) defaults to `/workspace`
-4. Add a Volume mounted at `/workspace` for persistence
-5. Deploy
-
-## Local Dev
+## Run locally
 
 ```bash
-# Backend
 cd backend
 pip install -r requirements.txt
 ANTHROPIC_API_KEY=your_key uvicorn main:app --reload
+```
 
-# Frontend (separate terminal)
+In another terminal:
+
+```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-Frontend proxies `/api` to `localhost:8000` via vite.config.js.
+## Build for deployment
 
-## Roadmap
+```bash
+cd frontend
+npm run build
+```
 
-- Phase 2: Persistent memory, web terminal, streaming file writes
-- Phase 3: Hosting layer — expose ports, integrate with Nexus Hosting
-- Phase 4: Nexus AI branding, multi-user federation
+Then run the Python app with the built frontend available under `frontend/dist`.
+
+## Environment variables
+
+- `ANTHROPIC_API_KEY` — required for the agent
+- `NEXUS_MODEL` — optional model override
+- `WORKSPACE_DIR` — optional workspace path, defaults to `/workspace`
+- `CORS_ORIGINS` — optional comma-separated allowed origins
+
+## Project layout
+
+- `backend/main.py` — API entrypoint
+- `backend/agent.py` — agent loop and tool use
+- `backend/tools.py` — workspace file helpers
+- `frontend/src/` — UI
+
+## License
+
+Add the license you want to ship with before public release.

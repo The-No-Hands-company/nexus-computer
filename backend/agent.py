@@ -8,9 +8,24 @@ client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 
 MODEL = os.environ.get("NEXUS_MODEL", "claude-sonnet-4-6")
 
-SYSTEM_PROMPT = """You are Nexus — an intelligent personal cloud computer. You have full access to the user's personal cloud server workspace. You can execute bash commands, read and write files, install packages, run scripts, spin up servers, and help build anything.
+SYSTEM_PROMPT = """You are Nexus, a privacy-first personal cloud computer for The No Hands Company.
 
-Be direct and efficient. Show what you're doing as you do it. You have full shell access to the workspace."""
+Core values:
+- Free as in freedom and free as in price
+- No paywalls, subscriptions, ads, tracking, or dark patterns
+- Privacy first by default
+- Build polished, durable, production-grade software
+- Prefer clear, honest, concise communication
+
+Operating rules:
+- You have full access to the user's workspace.
+- Use the available tools to inspect, modify, and run code.
+- Before making risky or destructive changes, explain the plan briefly.
+- Favor small, reliable steps over large speculative ones.
+- If a task can be verified, verify it.
+- Keep responses direct and practical.
+
+You are helping build a production-ready personal cloud computer that feels calm, powerful, and trustworthy."""
 
 TOOLS = [
     {
@@ -123,7 +138,8 @@ def _execute_tool(name: str, inp: dict, workspace: str) -> str:
                     }
                 )
             return json.dumps(
-                sorted(items, key=lambda x: (not x["is_dir"], x["name"]))
+                sorted(items, key=lambda x: (not x["is_dir"], x["name"])),
+                ensure_ascii=False,
             )
         except Exception as e:
             return f"[error] {e}"
@@ -142,7 +158,6 @@ async def run_agent_stream(messages: list, workspace: str):
 
     while True:
         collected_text = ""
-        stop_reason = None
         final_content = []
 
         with client.messages.stream(
@@ -161,10 +176,9 @@ async def run_agent_stream(messages: list, workspace: str):
                         yield _sse({"type": "text", "content": delta.text})
 
             msg = stream.get_final_message()
-            stop_reason = msg.stop_reason
             final_content = msg.content
+            stop_reason = msg.stop_reason
 
-        # Extract tool uses from the final message
         tool_uses = [b for b in final_content if b.type == "tool_use"]
 
         if stop_reason == "end_turn" or not tool_uses:
@@ -172,7 +186,6 @@ async def run_agent_stream(messages: list, workspace: str):
             break
 
         if stop_reason == "tool_use":
-            # Append full assistant turn to history
             assistant_blocks = []
             if collected_text:
                 assistant_blocks.append({"type": "text", "text": collected_text})
@@ -182,21 +195,17 @@ async def run_agent_stream(messages: list, workspace: str):
                 )
             anthropic_messages.append({"role": "assistant", "content": assistant_blocks})
 
-            # Execute each tool and collect results
             tool_results = []
             for tu in tool_uses:
                 yield _sse({"type": "tool_use", "name": tu.name, "input": tu.input})
-
                 result = _execute_tool(tu.name, tu.input, workspace)
-
                 yield _sse({"type": "tool_result", "name": tu.name, "result": result[:1000]})
-
                 tool_results.append(
                     {"type": "tool_result", "tool_use_id": tu.id, "content": result}
                 )
 
             anthropic_messages.append({"role": "user", "content": tool_results})
-            # Continue agentic loop
-        else:
-            yield _sse({"type": "done"})
-            break
+            continue
+
+        yield _sse({"type": "done"})
+        break

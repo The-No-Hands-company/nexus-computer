@@ -22,6 +22,12 @@ const FileIcon = () => (
   </svg>
 )
 
+const ShieldIcon = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+  </svg>
+)
+
 /* ── styles ── */
 const S = {
   panel: {
@@ -61,9 +67,26 @@ const S = {
     fontSize: '12px',
     color: 'var(--text-dim)',
     letterSpacing: '0.08em',
-    maxWidth: '360px',
+    maxWidth: '420px',
     textAlign: 'center',
     lineHeight: 1.8,
+  },
+  metaRow: {
+    display: 'flex',
+    gap: '8px',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    marginTop: '2px',
+  },
+  metaPill: {
+    padding: '4px 10px',
+    border: '1px solid var(--border)',
+    borderRadius: '999px',
+    color: 'var(--text-muted)',
+    fontSize: '10px',
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    background: 'rgba(255,255,255,0.02)',
   },
   prompts: {
     display: 'flex',
@@ -273,6 +296,7 @@ export default function Chat({ selectedFile, onFsChange }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
+  const [meta, setMeta] = useState(null)
   const bottomRef = useRef(null)
   const textareaRef = useRef(null)
 
@@ -286,6 +310,13 @@ export default function Chat({ selectedFile, onFsChange }) {
     `
     document.head.appendChild(style)
     return () => document.head.removeChild(style)
+  }, [])
+
+  useEffect(() => {
+    fetch('/api/meta')
+      .then(r => r.json())
+      .then(setMeta)
+      .catch(() => setMeta(null))
   }, [])
 
   useEffect(() => {
@@ -316,9 +347,16 @@ export default function Chat({ selectedFile, onFsChange }) {
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
         body: JSON.stringify({ messages: buildApiMessages(newMessages) }),
       })
+
+      if (!response.ok || !response.body) {
+        throw new Error(`Request failed (${response.status})`)
+      }
 
       const reader = response.body.getReader()
       const decoder = new TextDecoder()
@@ -355,7 +393,9 @@ export default function Chat({ selectedFile, onFsChange }) {
             } else if (event.type === 'done') {
               break
             }
-          } catch { /* skip malformed */ }
+          } catch {
+            continue
+          }
         }
       }
     } catch (e) {
@@ -382,6 +422,7 @@ export default function Chat({ selectedFile, onFsChange }) {
   }, [])
 
   const isEmpty = messages.length === 0
+  const metaLine = meta?.values?.slice(0, 3).join(' • ')
 
   return (
     <div style={S.panel}>
@@ -390,8 +431,12 @@ export default function Chat({ selectedFile, onFsChange }) {
           <div style={S.welcome}>
             <div style={S.welcomeTitle}>NEXUS</div>
             <div style={S.welcomeSub}>
-              Your personal cloud computer. Ask me to create files, run commands,
-              install software, or build anything.
+              Your private cloud computer. Build software, inspect files, run commands,
+              and automate work without paywalls or surveillance.
+            </div>
+            <div style={S.metaRow}>
+              <span style={S.metaPill}><ShieldIcon /> Free as in freedom</span>
+              {metaLine && <span style={S.metaPill}>{metaLine}</span>}
             </div>
             <div style={S.prompts}>
               {QUICK_PROMPTS.map(p => (

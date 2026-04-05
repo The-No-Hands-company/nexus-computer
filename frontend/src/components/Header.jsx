@@ -6,7 +6,7 @@ const S = {
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: '0 20px',
-    height: '48px',
+    height: '52px',
     background: 'var(--bg-2)',
     borderBottom: '1px solid var(--border)',
     flexShrink: 0,
@@ -61,9 +61,19 @@ const S = {
   right: {
     display: 'flex',
     alignItems: 'center',
-    gap: '16px',
+    gap: '14px',
     fontSize: '11px',
     color: 'var(--text-dim)',
+  },
+  pill: {
+    padding: '3px 8px',
+    borderRadius: '999px',
+    border: '1px solid var(--border)',
+    background: 'rgba(255,255,255,0.02)',
+    color: 'var(--text)',
+    letterSpacing: '0.05em',
+    textTransform: 'uppercase',
+    fontSize: '9px',
   },
   status: (online) => ({
     display: 'flex',
@@ -89,6 +99,7 @@ const pulse = `@keyframes pulse {
 export default function Header() {
   const [online, setOnline] = useState(false)
   const [time, setTime] = useState(new Date())
+  const [meta, setMeta] = useState(null)
 
   useEffect(() => {
     const style = document.createElement('style')
@@ -98,6 +109,11 @@ export default function Header() {
     fetch('/api/health')
       .then(r => r.ok ? setOnline(true) : setOnline(false))
       .catch(() => setOnline(false))
+
+    fetch('/api/meta')
+      .then(r => r.json())
+      .then(setMeta)
+      .catch(() => setMeta(null))
 
     const tick = setInterval(() => setTime(new Date()), 1000)
     return () => { clearInterval(tick); document.head.removeChild(style) }
@@ -114,10 +130,12 @@ export default function Header() {
           <span style={S.dot}>.</span>
           <span style={S.tld}>computer</span>
         </div>
-        <span style={S.badge}>Phase 1</span>
+        <span style={S.badge}>Production</span>
       </div>
 
       <div style={S.right}>
+        <span style={S.pill}>Free • Open • Private</span>
+        {meta?.values?.[0] && <span style={{ color: 'var(--text-muted)' }}>{meta.values[0]}</span>}
         <div style={S.status(online)}>
           <div style={S.statusDot(online)} />
           {online ? 'ONLINE' : 'OFFLINE'}

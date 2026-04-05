@@ -52,8 +52,8 @@ function extColor(name) {
 /* ── styles ── */
 const S = {
   panel: {
-    width: '240px',
-    minWidth: '180px',
+    width: '260px',
+    minWidth: '200px',
     display: 'flex',
     flexDirection: 'column',
     background: 'var(--bg-2)',
@@ -109,6 +109,17 @@ const S = {
     fontSize: '10px',
     flexShrink: 0,
   },
+  summary: {
+    padding: '8px 12px',
+    borderBottom: '1px solid var(--border-dim)',
+    color: 'var(--text-dim)',
+    fontSize: '10px',
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: '8px',
+  },
   viewer: {
     borderTop: '1px solid var(--border)',
     background: 'var(--bg)',
@@ -144,10 +155,10 @@ const S = {
   },
 }
 
-/* ── Tree item ── */
-function TreeItem({ item, depth = 0, selectedFile, onSelect }) {
+function TreeItem({ item, depth = 0, selectedFile, onSelect, maxDepth = 8 }) {
   const [open, setOpen] = useState(false)
   const [children, setChildren] = useState([])
+  const [error, setError] = useState(null)
 
   const isSelected = selectedFile?.path === item.path
 
@@ -157,9 +168,16 @@ function TreeItem({ item, depth = 0, selectedFile, onSelect }) {
       return
     }
     if (!open) {
-      const res = await fetch(`/api/files?path=${encodeURIComponent(item.path)}`)
-      const data = await res.json()
-      setChildren(data.items || [])
+      try {
+        const res = await fetch(`/api/files?path=${encodeURIComponent(item.path)}`)
+        if (!res.ok) throw new Error(`Request failed (${res.status})`)
+        const data = await res.json()
+        setChildren(data.items || [])
+        setError(null)
+      } catch (e) {
+        setError(e.message)
+        setChildren([])
+      }
     }
     setOpen(o => !o)
   }, [item, open, onSelect])
@@ -181,33 +199,41 @@ function TreeItem({ item, depth = 0, selectedFile, onSelect }) {
           <span style={S.itemSize}>{formatSize(item.size)}</span>
         )}
       </div>
-      {open && children.map(child => (
+      {error && open && (
+        <div style={{ paddingLeft: `${26 + depth * 14}px`, color: 'var(--red)', fontSize: '10px' }}>
+          {error}
+        </div>
+      )}
+      {open && depth < maxDepth && children.map(child => (
         <TreeItem
           key={child.path}
           item={child}
           depth={depth + 1}
           selectedFile={selectedFile}
           onSelect={onSelect}
+          maxDepth={maxDepth}
         />
       ))}
     </>
   )
 }
 
-/* ── Main component ── */
 export default function FileExplorer({ refreshKey, onFileSelect, selectedFile }) {
   const [items, setItems] = useState([])
   const [fileContent, setFileContent] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState(null)
 
   const loadRoot = useCallback(async () => {
     setLoading(true)
     try {
       const res = await fetch('/api/files')
+      if (!res.ok) throw new Error(`Request failed (${res.status})`)
       const data = await res.json()
       setItems(data.items || [])
+      setError(null)
     } catch (e) {
-      console.error(e)
+      setError(e.message)
     } finally {
       setLoading(false)
     }
@@ -220,6 +246,7 @@ export default function FileExplorer({ refreshKey, onFileSelect, selectedFile })
     if (!item.is_dir) {
       try {
         const res = await fetch(`/api/files/read?path=${encodeURIComponent(item.path)}`)
+        if (!res.ok) throw new Error(`Request failed (${res.status})`)
         const data = await res.json()
         setFileContent(data.content)
       } catch {
@@ -227,6 +254,13 @@ export default function FileExplorer({ refreshKey, onFileSelect, selectedFile })
       }
     }
   }, [onFileSelect])
+
+  const counts = items.reduce((acc, item) => {
+    acc.total += 1
+    if (item.is_dir) acc.dirs += 1
+    else acc.files += 1
+    return acc
+  }, { total: 0, dirs: 0, files: 0 })
 
   return (
     <div style={S.panel}>
@@ -243,9 +277,15 @@ export default function FileExplorer({ refreshKey, onFileSelect, selectedFile })
         </button>
       </div>
 
+      <div style={S.summary}>
+        <span>{counts.files} files</span>
+        <span>{counts.dirs} folders</span>
+      </div>
+
       <div style={S.tree}>
         {loading && <div style={S.empty}>Loading...</div>}
-        {!loading && items.length === 0 && (
+        {!loading && error && <div style={S.empty}>Could not load workspace.<br />{error}</div>}
+        {!loading && !error && items.length === 0 && (
           <div style={S.empty}>Workspace is empty.<br />Ask Nexus to create something.</div>
         )}
         {items.map(item => (

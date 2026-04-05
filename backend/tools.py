@@ -5,8 +5,9 @@ from fastapi import HTTPException
 
 def _safe(workspace: str, path: str) -> str:
     """Resolve and verify path stays within workspace."""
-    resolved = os.path.realpath(os.path.join(workspace, path.lstrip("/")))
-    if not resolved.startswith(os.path.realpath(workspace)):
+    workspace_real = os.path.realpath(workspace)
+    resolved = os.path.realpath(os.path.join(workspace_real, path.lstrip("/")))
+    if os.path.commonpath([workspace_real, resolved]) != workspace_real:
         raise HTTPException(status_code=403, detail="Path traversal denied")
     return resolved
 
@@ -56,7 +57,9 @@ def read_file_api(workspace: str, path: str):
 def write_file_api(workspace: str, path: str, content: str):
     try:
         target = _safe(workspace, path)
-        os.makedirs(os.path.dirname(target), exist_ok=True)
+        parent = os.path.dirname(target)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         with open(target, "w") as f:
             f.write(content)
         return {"path": path, "status": "written"}
