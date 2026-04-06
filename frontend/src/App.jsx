@@ -6,6 +6,7 @@ import CommunityPanel from './components/CommunityPanel'
 import AccountPanel from './components/AccountPanel'
 import PluginPanel from './components/PluginPanel'
 import CommandPalette from './components/CommandPalette'
+import NetworkPanel from './components/NetworkPanel'
 
 const styles = {
   app: {
@@ -87,6 +88,7 @@ export default function App() {
     { id: 'open-files', label: 'Focus files', description: 'Bring the workspace explorer into view', keywords: ['files', 'explorer'], action: () => document.querySelector('[data-panel="files"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }) },
     { id: 'open-account', label: 'Focus account', description: 'Show account and session controls', keywords: ['account', 'sessions'], action: () => document.querySelector('[data-panel="account"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }) },
     { id: 'open-plugins', label: 'Focus plugins', description: 'Show plugin installs', keywords: ['plugins', 'apps'], action: () => document.querySelector('[data-panel="plugins"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }) },
+    { id: 'open-network', label: 'Focus network health', description: 'Show Nexus federation network stats', keywords: ['network', 'federation', 'nodes', 'health'], action: () => document.querySelector('[data-panel="network"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }) },
   ]), [refresh])
 
   return (
@@ -117,6 +119,10 @@ export default function App() {
           <div style={styles.subDivider} />
           <div data-panel="community">
             <CommunityPanel />
+          </div>
+          <div style={styles.subDivider} />
+          <div data-panel="network" style={{ flex: 1, minHeight: 0 }}>
+            <NetworkPanel />
           </div>
         </div>
         <div style={styles.divider} />
