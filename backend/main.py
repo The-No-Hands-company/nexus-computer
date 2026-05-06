@@ -4,8 +4,10 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, StreamingResponse, FileResponse
 from pydantic import BaseModel
 from typing import Literal
+import asyncio
 import hmac
 import hashlib
+import httpx
 import json
 import os
 import platform
@@ -71,6 +73,7 @@ from cloud_registry import (
     deregister_hub,
     rotate_hub_token,
 )
+from computer_contracts import build_systems_api_registration_payload
 
 app = FastAPI(title="Nexus.computer API")
 
@@ -104,6 +107,12 @@ ensure_cloud_registry(WORKSPACE)
 SEARCH_INDEXER = SearchIndexer(WORKSPACE)
 AUTOMATION = AutomationScheduler(WORKSPACE)
 SERVICES = HostedServiceManager(WORKSPACE)
+NEXUS_CLOUD_URL = os.environ.get("NEXUS_CLOUD_URL", "").strip()
+NEXUS_CLOUD_API_KEY = os.environ.get("NEXUS_CLOUD_API_KEY", "").strip()
+NEXUS_COMPUTER_TOOL_ID = os.environ.get("NEXUS_COMPUTER_TOOL_ID", "nexus-computer").strip() or "nexus-computer"
+NEXUS_COMPUTER_TOOL_NAME = os.environ.get("NEXUS_COMPUTER_TOOL_NAME", "Nexus Computer").strip() or "Nexus Computer"
+NEXUS_CLOUD_HEARTBEAT_INTERVAL_SECONDS = max(5, int(os.environ.get("NEXUS_CLOUD_HEARTBEAT_INTERVAL_SECONDS", "30") or "30"))
+NEXUS_COMPUTER_PUBLIC_URL = os.environ.get("NEXUS_COMPUTER_PUBLIC_URL", os.environ.get("PUBLIC_URL", "")).strip()
 
 
 class ChatMessage(BaseModel):
@@ -356,6 +365,63 @@ def _find_plugin(plugins: list[dict], plugin_id: str) -> dict | None:
     return None
 
 
+def _cloud_tool_upstream_url() -> str:
+    if NEXUS_COMPUTER_PUBLIC_URL:
+        return NEXUS_COMPUTER_PUBLIC_URL
+    return f"http://localhost:{os.environ.get('PORT', '8000')}"
+
+
+def _cloud_headers() -> dict[str, str]:
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    if NEXUS_CLOUD_API_KEY:
+        headers["X-Api-Key"] = NEXUS_CLOUD_API_KEY
+    return headers
+
+
+async def _register_with_nexus_cloud() -> None:
+    if not NEXUS_CLOUD_URL:
+        return
+    payload = build_systems_api_registration_payload(
+        upstream_url=_cloud_tool_upstream_url(),
+        tool_id=NEXUS_COMPUTER_TOOL_ID,
+        tool_name=NEXUS_COMPUTER_TOOL_NAME,
+    )
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(
+            f"{NEXUS_CLOUD_URL.rstrip('/')}/api/v1/tools",
+            headers=_cloud_headers(),
+            json=payload,
+        )
+        response.raise_for_status()
+
+
+async def _send_cloud_heartbeat() -> None:
+    if not NEXUS_CLOUD_URL:
+        return
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(
+            f"{NEXUS_CLOUD_URL.rstrip('/')}/api/v1/tools/{NEXUS_COMPUTER_TOOL_ID}/heartbeat",
+            headers=_cloud_headers(),
+            json={"health": "healthy", "upstreamUrl": _cloud_tool_upstream_url()},
+        )
+        response.raise_for_status()
+
+
+async def _cloud_heartbeat_loop(stop_event: asyncio.Event) -> None:
+    while not stop_event.is_set():
+        try:
+            await _send_cloud_heartbeat()
+        except Exception as e:
+            print(f"Nexus Cloud heartbeat failed: {e}")
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=NEXUS_CLOUD_HEARTBEAT_INTERVAL_SECONDS)
+        except asyncio.TimeoutError:
+            continue
+
+
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     response = await call_next(request)
@@ -391,9 +457,33 @@ async def startup_event():
     except Exception as e:
         print(f"Hosted service autostart failed: {e}")
 
+    app.state.cloud_heartbeat_stop = asyncio.Event()
+    app.state.cloud_heartbeat_task = None
+    if NEXUS_CLOUD_URL:
+        try:
+            await _register_with_nexus_cloud()
+            print(f"Registered {NEXUS_COMPUTER_TOOL_ID} with Nexus Cloud")
+        except Exception as e:
+            print(f"Nexus Cloud registration failed: {e}")
+        app.state.cloud_heartbeat_task = asyncio.create_task(
+            _cloud_heartbeat_loop(app.state.cloud_heartbeat_stop)
+        )
+
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    stop_event = getattr(app.state, "cloud_heartbeat_stop", None)
+    heartbeat_task = getattr(app.state, "cloud_heartbeat_task", None)
+    if stop_event is not None:
+        stop_event.set()
+    if heartbeat_task is not None:
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            pass
     try:
         AUTOMATION.stop()
     except Exception:
@@ -407,6 +497,41 @@ async def shutdown_event():
 @app.get("/api/health")
 async def health():
     return {"status": "online", "workspace": WORKSPACE}
+
+
+@app.get("/health")
+async def health_alias():
+    return {"status": "ok", "service": "nexus-computer", "workspace": WORKSPACE}
+
+
+@app.get("/api/v1/computer/readiness")
+async def computer_readiness():
+    return {
+        "status": "ready",
+        "service": "nexus-computer",
+        "contracts": {
+            "registration": "/api/v1/computer/contracts/registration",
+            "health": "/health",
+            "legacyHealth": "/api/health",
+        },
+        "cloudIntegration": {
+            "enabled": bool(NEXUS_CLOUD_URL),
+            "cloudUrl": NEXUS_CLOUD_URL or None,
+            "toolId": NEXUS_COMPUTER_TOOL_ID,
+        },
+    }
+
+
+@app.get("/api/v1/computer/contracts/registration")
+async def computer_registration_contract():
+    return {
+        "status": "ok",
+        "payload": build_systems_api_registration_payload(
+            upstream_url=_cloud_tool_upstream_url(),
+            tool_id=NEXUS_COMPUTER_TOOL_ID,
+            tool_name=NEXUS_COMPUTER_TOOL_NAME,
+        ),
+    }
 
 
 # ── Auth ───────────────────────────────────────────────────────────────────────
