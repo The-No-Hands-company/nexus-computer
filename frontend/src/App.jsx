@@ -208,6 +208,7 @@ export default function App() {
   const [mainTab, setMainTab] = useState('chat')
   const [authState, setAuthState] = useState('loading')
   const [unhealthyCount, setUnhealthyCount] = useState(0)
+  const [activeSessionId, setActiveSessionId] = useState(null)
 
   useEffect(() => {
     fetch('/api/auth/status')
@@ -219,6 +220,18 @@ export default function App() {
       })
       .catch(() => setAuthState('app'))
   }, [])
+
+  useEffect(() => {
+    if (authState !== 'app') return
+    fetch('/api/sessions')
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.active_session_id) {
+          setActiveSessionId(data.active_session_id)
+        }
+      })
+      .catch(() => {})
+  }, [authState])
 
   useEffect(() => {
     const poll = () =>
@@ -369,6 +382,7 @@ export default function App() {
                 selectedFile={selectedFile}
                 onFsChange={refresh}
                 onOpenPalette={() => setPaletteOpen(true)}
+                sessionId={activeSessionId}
               />
             </div>
             <div style={{ display: mainTab === 'terminal' ? 'flex' : 'none', flex: 1, overflow: 'hidden' }}>

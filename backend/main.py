@@ -580,7 +580,7 @@ async def terminal_endpoint(websocket: WebSocket, token: str = ""):
 
 
 @app.get("/api/meta")
-async def meta():
+async def meta(_auth: bool = Depends(require_auth)):
     usage = shutil.disk_usage(WORKSPACE)
     account = _load_account()
     sessions = _load_sessions()
@@ -614,7 +614,7 @@ async def meta():
 
 
 @app.get("/api/account")
-async def get_account():
+async def get_account(_auth: bool = Depends(require_auth)):
     account = _load_account()
     sessions = _load_sessions()
     active_session = _find_session(sessions, sessions.get("active_session_id", ""))
@@ -626,7 +626,7 @@ async def get_account():
 
 
 @app.post("/api/account")
-async def update_account(body: AccountUpdate):
+async def update_account(body: AccountUpdate, _auth: bool = Depends(require_auth)):
     account = _load_account()
     if body.name is not None and body.name.strip():
         account["name"] = body.name.strip()
@@ -640,7 +640,7 @@ async def update_account(body: AccountUpdate):
 
 
 @app.get("/api/sessions")
-async def get_sessions():
+async def get_sessions(_auth: bool = Depends(require_auth)):
     sessions = _load_sessions()
     return {
         "active_session_id": sessions.get("active_session_id"),
@@ -649,7 +649,7 @@ async def get_sessions():
 
 
 @app.post("/api/sessions")
-async def create_session(body: SessionCreate):
+async def create_session(body: SessionCreate, _auth: bool = Depends(require_auth)):
     label = body.label.strip()
     if len(label) < 2:
         raise HTTPException(status_code=400, detail="label must be at least 2 characters")
@@ -667,7 +667,7 @@ async def create_session(body: SessionCreate):
 
 
 @app.post("/api/sessions/{session_id}/activate")
-async def activate_session(session_id: str):
+async def activate_session(session_id: str, _auth: bool = Depends(require_auth)):
     sessions = _load_sessions()
     item = _find_session(sessions, session_id)
     if not item:
@@ -679,7 +679,7 @@ async def activate_session(session_id: str):
 
 
 @app.delete("/api/sessions/{session_id}")
-async def delete_session(session_id: str):
+async def delete_session(session_id: str, _auth: bool = Depends(require_auth)):
     sessions = _load_sessions()
     items = [item for item in sessions.get("items", []) if item.get("id") != session_id]
     if len(items) == len(sessions.get("items", [])):
@@ -692,12 +692,12 @@ async def delete_session(session_id: str):
 
 
 @app.get("/api/plugins")
-async def get_plugins():
+async def get_plugins(_auth: bool = Depends(require_auth)):
     return {"items": _load_plugins()}
 
 
 @app.post("/api/plugins")
-async def install_plugin(body: PluginInstall):
+async def install_plugin(body: PluginInstall, _auth: bool = Depends(require_auth)):
     name = body.name.strip()
     if len(name) < 2:
         raise HTTPException(status_code=400, detail="name must be at least 2 characters")
@@ -717,7 +717,7 @@ async def install_plugin(body: PluginInstall):
 
 
 @app.post("/api/plugins/{plugin_id}")
-async def update_plugin(plugin_id: str, body: PluginUpdate):
+async def update_plugin(plugin_id: str, body: PluginUpdate, _auth: bool = Depends(require_auth)):
     plugins = _load_plugins()
     item = _find_plugin(plugins, plugin_id)
     if not item:
@@ -736,7 +736,7 @@ async def update_plugin(plugin_id: str, body: PluginUpdate):
 
 
 @app.delete("/api/plugins/{plugin_id}")
-async def uninstall_plugin(plugin_id: str):
+async def uninstall_plugin(plugin_id: str, _auth: bool = Depends(require_auth)):
     plugins = _load_plugins()
     next_plugins = [item for item in plugins if item.get("id") != plugin_id]
     if len(next_plugins) == len(plugins):
@@ -746,34 +746,34 @@ async def uninstall_plugin(plugin_id: str):
 
 
 @app.get("/api/feature-requests")
-async def list_feature_requests():
+async def list_feature_requests(_auth: bool = Depends(require_auth)):
     items = _load_feature_requests()
     return {"items": _sorted_feature_requests(items)}
 
 
 @app.get("/api/actions")
-async def get_actions(limit: int = 100, offset: int = 0):
+async def get_actions(limit: int = 100, offset: int = 0, _auth: bool = Depends(require_auth)):
     return list_actions(WORKSPACE, limit=limit, offset=offset)
 
 
 @app.get("/api/policy")
-async def get_policy():
+async def get_policy(_auth: bool = Depends(require_auth)):
     return load_policy(WORKSPACE)
 
 
 @app.get("/api/snapshots")
-async def get_snapshots():
+async def get_snapshots(_auth: bool = Depends(require_auth)):
     return list_snapshots(WORKSPACE)
 
 
 @app.post("/api/snapshots")
-async def make_snapshot(body: SnapshotCreate):
+async def make_snapshot(body: SnapshotCreate, _auth: bool = Depends(require_auth)):
     item = create_snapshot(WORKSPACE, label=body.label)
     return {"snapshot": item}
 
 
 @app.post("/api/snapshots/{snapshot_id}/restore")
-async def restore_snapshot_by_id(snapshot_id: str):
+async def restore_snapshot_by_id(snapshot_id: str, _auth: bool = Depends(require_auth)):
     try:
         return restore_snapshot(WORKSPACE, snapshot_id)
     except FileNotFoundError as e:
@@ -781,7 +781,7 @@ async def restore_snapshot_by_id(snapshot_id: str):
 
 
 @app.get("/api/deployment")
-async def get_deployment():
+async def get_deployment(_auth: bool = Depends(require_auth)):
     """Get current deployment status."""
     return get_deployment_status(WORKSPACE)
 
@@ -791,7 +791,7 @@ class DeploymentModeUpdate(BaseModel):
 
 
 @app.post("/api/deployment/mode")
-async def update_deployment_mode(body: DeploymentModeUpdate):
+async def update_deployment_mode(body: DeploymentModeUpdate, _auth: bool = Depends(require_auth)):
     """Set the deployment mode."""
     try:
         return set_deployment_mode(WORKSPACE, body.mode)
@@ -805,7 +805,7 @@ class FederationConfig(BaseModel):
 
 
 @app.post("/api/deployment/federation")
-async def configure_federation(body: FederationConfig):
+async def configure_federation(body: FederationConfig, _auth: bool = Depends(require_auth)):
     """Enable or disable federation."""
     if body.enabled:
         return enable_federation(WORKSPACE, body.node_id)
@@ -814,7 +814,7 @@ async def configure_federation(body: FederationConfig):
 
 
 @app.post("/api/feature-requests")
-async def create_feature_request(body: FeatureRequestCreate):
+async def create_feature_request(body: FeatureRequestCreate, _auth: bool = Depends(require_auth)):
     title = body.title.strip()
     details = body.details.strip()
     if len(title) < 3:
@@ -836,7 +836,7 @@ async def create_feature_request(body: FeatureRequestCreate):
 
 
 @app.post("/api/feature-requests/{request_id}/vote")
-async def vote_feature_request(request_id: str):
+async def vote_feature_request(request_id: str, _auth: bool = Depends(require_auth)):
     items = _load_feature_requests()
     item = _find_feature_request(items, request_id)
     if not item:
@@ -848,7 +848,7 @@ async def vote_feature_request(request_id: str):
 
 
 @app.post("/api/chat")
-async def chat(body: ChatRequest):
+async def chat(body: ChatRequest, _auth: bool = Depends(require_auth)):
     if not body.messages:
         raise HTTPException(status_code=400, detail="messages cannot be empty")
     if body.search:
@@ -879,7 +879,7 @@ async def chat(body: ChatRequest):
 
 
 @app.get("/api/personas")
-async def get_personas():
+async def get_personas(_auth: bool = Depends(require_auth)):
     data = list_personas(WORKSPACE)
     active = get_active_persona(WORKSPACE)
     return {
@@ -890,7 +890,7 @@ async def get_personas():
 
 
 @app.get("/api/personas/{persona_id}")
-async def get_persona_details(persona_id: str):
+async def get_persona_details(persona_id: str, _auth: bool = Depends(require_auth)):
     persona = get_persona(WORKSPACE, persona_id)
     if not persona:
         raise HTTPException(status_code=404, detail="persona not found")
@@ -898,7 +898,7 @@ async def get_persona_details(persona_id: str):
 
 
 @app.post("/api/personas")
-async def create_persona_item(body: PersonaCreate):
+async def create_persona_item(body: PersonaCreate, _auth: bool = Depends(require_auth)):
     if len(body.name.strip()) < 2:
         raise HTTPException(status_code=400, detail="name must be at least 2 characters")
     if len(body.system_prompt.strip()) < 10:
@@ -907,7 +907,7 @@ async def create_persona_item(body: PersonaCreate):
 
 
 @app.put("/api/personas/{persona_id}")
-async def update_persona_item(persona_id: str, body: PersonaUpdate):
+async def update_persona_item(persona_id: str, body: PersonaUpdate, _auth: bool = Depends(require_auth)):
     try:
         return update_persona(WORKSPACE, persona_id, body.name, body.description, body.system_prompt)
     except FileNotFoundError as e:
@@ -915,7 +915,7 @@ async def update_persona_item(persona_id: str, body: PersonaUpdate):
 
 
 @app.delete("/api/personas/{persona_id}")
-async def delete_persona_item(persona_id: str):
+async def delete_persona_item(persona_id: str, _auth: bool = Depends(require_auth)):
     try:
         delete_persona(WORKSPACE, persona_id)
         return {"status": "deleted", "persona_id": persona_id}
@@ -926,7 +926,7 @@ async def delete_persona_item(persona_id: str):
 
 
 @app.post("/api/personas/{persona_id}/activate")
-async def activate_persona_item(persona_id: str):
+async def activate_persona_item(persona_id: str, _auth: bool = Depends(require_auth)):
     try:
         data = set_active_persona(WORKSPACE, persona_id)
         active = get_active_persona(WORKSPACE)
@@ -940,17 +940,17 @@ async def activate_persona_item(persona_id: str):
 
 
 @app.get("/api/files")
-async def get_files(path: str = ""):
+async def get_files(path: str = "", _auth: bool = Depends(require_auth)):
     return list_files_api(WORKSPACE, path)
 
 
 @app.get("/api/files/read")
-async def read_file(path: str):
+async def read_file(path: str, _auth: bool = Depends(require_auth)):
     return read_file_api(WORKSPACE, path)
 
 
 @app.post("/api/files/write")
-async def write_file(body: FileWriteRequest):
+async def write_file(body: FileWriteRequest, _auth: bool = Depends(require_auth)):
     result = write_file_api(WORKSPACE, body.path, body.content)
     # Update search index
     try:
@@ -962,7 +962,7 @@ async def write_file(body: FileWriteRequest):
 
 
 @app.delete("/api/files")
-async def delete_file(path: str):
+async def delete_file(path: str, _auth: bool = Depends(require_auth)):
     result = delete_file_api(WORKSPACE, path)
     # Update search index
     try:
@@ -977,7 +977,7 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
 @app.post("/api/files/upload")
-async def upload_file(path: str = Form(""), file: UploadFile = File(...)):
+async def upload_file(_auth: bool = Depends(require_auth), path: str = Form(""), file: UploadFile = File(...)):
     """Upload a file into the workspace at the given directory path."""
     filename = os.path.basename(file.filename or "")
     if not filename:
@@ -1013,7 +1013,7 @@ async def upload_file(path: str = Form(""), file: UploadFile = File(...)):
 
 
 @app.get("/api/files/download")
-async def download_file(path: str):
+async def download_file(path: str, _auth: bool = Depends(require_auth)):
     """Download a single file from the workspace."""
     full_path = _safe(WORKSPACE, path)
     if not os.path.exists(full_path):
@@ -1028,7 +1028,7 @@ async def download_file(path: str):
 
 
 @app.get("/api/search")
-async def search_files(q: str, limit: int = 20):
+async def search_files(q: str, limit: int = 20, _auth: bool = Depends(require_auth)):
     """Full-text search across workspace files."""
     if not q or len(q.strip()) < 2:
         return {"results": [], "query": q}
@@ -1038,14 +1038,14 @@ async def search_files(q: str, limit: int = 20):
 
 
 @app.post("/api/search/rebuild")
-async def rebuild_search_index():
+async def rebuild_search_index(_auth: bool = Depends(require_auth)):
     """Rebuild search index from scratch."""
     SEARCH_INDEXER.rebuild_from_workspace()
     return {"status": "index rebuilt", "info": SEARCH_INDEXER.get_status()}
 
 
 @app.get("/api/search/status")
-async def get_search_status():
+async def get_search_status(_auth: bool = Depends(require_auth)):
     """Get search index status."""
     return SEARCH_INDEXER.get_status()
 
@@ -1061,7 +1061,7 @@ async def get_models():
 
 
 @app.get("/api/models/{model_id}")
-async def get_model_details(model_id: str):
+async def get_model_details(model_id: str, _auth: bool = Depends(require_auth)):
     """Get details about a specific model."""
     model = get_model(model_id)
     if not model:
@@ -1070,13 +1070,13 @@ async def get_model_details(model_id: str):
 
 
 @app.get("/api/automation/jobs")
-async def get_automation_jobs():
+async def get_automation_jobs(_auth: bool = Depends(require_auth)):
     data = load_jobs(WORKSPACE)
     return {"items": data.get("items", [])}
 
 
 @app.post("/api/automation/jobs")
-async def create_automation_job(body: AutomationJobCreate):
+async def create_automation_job(body: AutomationJobCreate, _auth: bool = Depends(require_auth)):
     if len(body.name.strip()) < 2:
         raise HTTPException(status_code=400, detail="name must be at least 2 characters")
     if len(body.command.strip()) < 1:
@@ -1092,7 +1092,7 @@ async def create_automation_job(body: AutomationJobCreate):
 
 
 @app.post("/api/automation/jobs/{job_id}")
-async def update_automation_job(job_id: str, body: AutomationJobUpdate):
+async def update_automation_job(job_id: str, body: AutomationJobUpdate, _auth: bool = Depends(require_auth)):
     try:
         return update_job(
             WORKSPACE,
@@ -1107,7 +1107,7 @@ async def update_automation_job(job_id: str, body: AutomationJobUpdate):
 
 
 @app.delete("/api/automation/jobs/{job_id}")
-async def delete_automation_job(job_id: str):
+async def delete_automation_job(job_id: str, _auth: bool = Depends(require_auth)):
     try:
         delete_job(WORKSPACE, job_id)
         return {"status": "deleted", "job_id": job_id}

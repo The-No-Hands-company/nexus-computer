@@ -38,6 +38,18 @@ const CommandIcon = () => (
   </svg>
 )
 
+const StopIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+    <rect x="4" y="4" width="16" height="16" rx="2"/>
+  </svg>
+)
+
+const AttachIcon = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+  </svg>
+)
+
 /* ── styles ── */
 const S = {
   panel: {
@@ -349,6 +361,9 @@ const MD_STYLES = {
   li: { marginBottom: '2px', lineHeight: 1.6 },
   p: { margin: '3px 0', lineHeight: 1.7 },
   a: { color: 'var(--accent)', textDecoration: 'underline' },
+  table: { borderCollapse: 'collapse', width: '100%', margin: '8px 0', fontSize: '12px' },
+  th: { border: '1px solid var(--border)', padding: '6px 10px', textAlign: 'left', background: 'var(--bg-3)', color: 'var(--accent-dim)', fontWeight: 600 },
+  td: { border: '1px solid var(--border)', padding: '6px 10px', color: 'var(--text)' },
 }
 
 function renderInline(text, keyPrefix = '') {
@@ -371,6 +386,20 @@ function renderInline(text, keyPrefix = '') {
   }
   if (last < text.length) parts.push(text.slice(last))
   return parts
+}
+
+function isTableLine(line) {
+  return line.trim().startsWith('|') && line.trim().endsWith('|')
+}
+
+function parseTable(tableLines) {
+  const rows = tableLines.map(line =>
+    line.trim().slice(1, -1).split('|').map(cell => cell.trim())
+  )
+  const header = rows[0]
+  // Skip separator row (index 1 — contains only dashes/spaces)
+  const body = rows.slice(2)
+  return { header, body }
 }
 
 function MarkdownBubble({ text }) {
@@ -397,8 +426,27 @@ function MarkdownBubble({ text }) {
     const lines = seg.split('\n')
     let ulItems = null
     let olItems = null
+    let tableLines = null
 
     const flush = (key) => {
+      if (tableLines && tableLines.length >= 2) {
+        const { header, body } = parseTable(tableLines)
+        blocks.push(
+          <table key={`tbl${key}`} style={MD_STYLES.table}>
+            <thead>
+              <tr>{header.map((h, i) => <th key={i} style={MD_STYLES.th}>{renderInline(h, `${key}th${i}`)}</th>)}</tr>
+            </thead>
+            <tbody>
+              {body.map((row, ri) => (
+                <tr key={ri}>
+                  {row.map((cell, ci) => <td key={ci} style={MD_STYLES.td}>{renderInline(cell, `${key}td${ri}${ci}`)}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )
+        tableLines = null
+      }
       if (ulItems) {
         blocks.push(<ul key={`ul${key}`} style={MD_STYLES.ul}>{ulItems.map((c, j) => <li key={j} style={MD_STYLES.li}>{c}</li>)}</ul>)
         ulItems = null
@@ -411,6 +459,16 @@ function MarkdownBubble({ text }) {
 
     lines.forEach((line, li) => {
       const key = `${si}-${li}`
+
+      if (isTableLine(line)) {
+        if (ulItems || olItems) flush(key)
+        if (!tableLines) tableLines = []
+        tableLines.push(line)
+        return
+      } else {
+        if (tableLines) flush(key)
+      }
+
       const h1 = line.match(/^# (.+)/)
       const h2 = line.match(/^## (.+)/)
       const h3 = line.match(/^### (.+)/)
@@ -508,7 +566,7 @@ function Message({ msg }) {
 }
 
 /* ── Main Chat ── */
-export default function Chat({ selectedFile, onFsChange, onOpenPalette }) {
+export default function Chat({ selectedFile, onFsChange, onOpenPalette, sessionId }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
   const [streaming, setStreaming] = useState(false)
@@ -518,8 +576,11 @@ export default function Chat({ selectedFile, onFsChange, onOpenPalette }) {
   const [selectedModel, setSelectedModel] = useState('nexus-ai')
   const [personas, setPersonas] = useState([])
   const [selectedPersona, setSelectedPersona] = useState('')
+  const [currentSessionId, setCurrentSessionId] = useState(null)
   const bottomRef = useRef(null)
   const textareaRef = useRef(null)
+  const abortRef = useRef(null)
+  const messagesRef = useRef([])
 
   useEffect(() => {
     const style = document.createElement('style')
@@ -536,6 +597,30 @@ export default function Chat({ selectedFile, onFsChange, onOpenPalette }) {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
+
+  useEffect(() => {
+    if (!sessionId) return
+    if (sessionId === currentSessionId) return
+    setCurrentSessionId(sessionId)
+
+    const token = localStorage.getItem('nexus_token') || ''
+    fetch(`/api/sessions/${sessionId}/history`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data && Array.isArray(data.messages) && data.messages.length > 0) {
+          setMessages(data.messages)
+        } else {
+          setMessages([])
+        }
+      })
+      .catch(() => {})
+  }, [sessionId, currentSessionId])
 
   useEffect(() => {
     fetch('/api/meta')
@@ -570,6 +655,14 @@ export default function Chat({ selectedFile, onFsChange, onOpenPalette }) {
       .map(m => ({ role: m.role, content: m.content }))
   }, [])
 
+  const handleCancel = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort()
+      abortRef.current = null
+    }
+    setStreaming(false)
+  }, [])
+
   const sendMessage = useCallback(async (text) => {
     if (!text.trim() || streaming) return
 
@@ -585,6 +678,9 @@ export default function Chat({ selectedFile, onFsChange, onOpenPalette }) {
     let assistantText = ''
     let assistantMsgAdded = false
 
+    const controller = new AbortController()
+    abortRef.current = controller
+
     try {
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -592,6 +688,7 @@ export default function Chat({ selectedFile, onFsChange, onOpenPalette }) {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
         },
+        signal: controller.signal,
         body: JSON.stringify({
           messages: buildApiMessages(newMessages),
           search: search.trim() || null,
@@ -651,8 +748,22 @@ export default function Chat({ selectedFile, onFsChange, onOpenPalette }) {
       }])
     } finally {
       setStreaming(false)
+      abortRef.current = null
+      // Auto-save history
+      const sid = sessionId
+      if (sid) {
+        const token = localStorage.getItem('nexus_token') || ''
+        fetch(`/api/sessions/${sid}/history`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({ messages: messagesRef.current }),
+        }).catch(() => {})
+      }
     }
-  }, [messages, streaming, buildApiMessages, onFsChange, search, selectedModel, selectedPersona])
+  }, [messages, streaming, buildApiMessages, onFsChange, search, selectedModel, selectedPersona, sessionId])
 
   const handleKey = useCallback((e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -783,6 +894,17 @@ export default function Chat({ selectedFile, onFsChange, onOpenPalette }) {
             onFocus={e => e.currentTarget.style.borderColor = 'var(--accent-dim)'}
             onBlur={e => e.currentTarget.style.borderColor = 'var(--border)'}
           >
+            <button
+              title="File attach — coming soon"
+              onClick={() => {}}
+              style={{
+                background: 'none', border: 'none', padding: '4px',
+                color: 'var(--text-muted)', cursor: 'not-allowed', opacity: 0.5,
+                display: 'flex', alignItems: 'center',
+              }}
+            >
+              <AttachIcon />
+            </button>
             <textarea
               ref={textareaRef}
               style={S.textarea}
@@ -799,13 +921,30 @@ export default function Chat({ selectedFile, onFsChange, onOpenPalette }) {
             <span>⌘K palette</span>
           </div>
         </div>
-        <button
-          style={S.sendBtn(!input.trim() || streaming)}
-          onClick={() => sendMessage(input)}
-          disabled={!input.trim() || streaming}
-        >
-          <SendIcon />
-        </button>
+        {streaming ? (
+          <button
+            style={{
+              width: '34px', height: '34px', borderRadius: '6px',
+              background: 'rgba(255,60,60,0.15)',
+              border: '1px solid rgba(255,60,60,0.4)',
+              color: '#ff5555',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', flexShrink: 0,
+            }}
+            onClick={handleCancel}
+            title="Stop generating"
+          >
+            <StopIcon />
+          </button>
+        ) : (
+          <button
+            style={S.sendBtn(!input.trim() || streaming)}
+            onClick={() => sendMessage(input)}
+            disabled={!input.trim() || streaming}
+          >
+            <SendIcon />
+          </button>
+        )}
       </div>
     </div>
   )
