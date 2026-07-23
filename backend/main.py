@@ -315,6 +315,29 @@ def _save_sessions(sessions: dict) -> None:
     _write_json(SESSIONS_FILE, sessions)
 
 
+def _history_path(session_id: str) -> str:
+    return os.path.join(DATA_DIR, "history", f"{session_id}.json")
+
+
+def _load_history(session_id: str) -> list:
+    path = _history_path(session_id)
+    try:
+        with open(path, "r") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except FileNotFoundError:
+        return []
+    except Exception:
+        return []
+
+
+def _save_history(session_id: str, messages: list) -> None:
+    path = _history_path(session_id)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        json.dump(messages, f, ensure_ascii=False)
+
+
 def _default_plugins() -> list[dict]:
     return []
 
@@ -678,6 +701,37 @@ async def activate_session(session_id: str, _auth: bool = Depends(require_auth))
     return {"session": item, "active_session_id": session_id}
 
 
+class HistorySave(BaseModel):
+    messages: list
+
+
+@app.get("/api/sessions/{session_id}/history")
+async def get_session_history(session_id: str, _auth: bool = Depends(require_auth)):
+    sessions = _load_sessions()
+    if not _find_session(sessions, session_id):
+        raise HTTPException(status_code=404, detail="session not found")
+    return {"session_id": session_id, "messages": _load_history(session_id)}
+
+
+@app.put("/api/sessions/{session_id}/history")
+async def save_session_history(session_id: str, body: HistorySave, _auth: bool = Depends(require_auth)):
+    sessions = _load_sessions()
+    if not _find_session(sessions, session_id):
+        raise HTTPException(status_code=404, detail="session not found")
+    # Keep max 200 messages
+    messages = body.messages[-200:]
+    _save_history(session_id, messages)
+    return {"session_id": session_id, "count": len(messages)}
+
+
+@app.delete("/api/sessions/{session_id}/history")
+async def clear_session_history(session_id: str, _auth: bool = Depends(require_auth)):
+    path = _history_path(session_id)
+    if os.path.exists(path):
+        os.remove(path)
+    return {"session_id": session_id, "status": "cleared"}
+
+
 @app.delete("/api/sessions/{session_id}")
 async def delete_session(session_id: str, _auth: bool = Depends(require_auth)):
     sessions = _load_sessions()
@@ -759,6 +813,30 @@ async def get_actions(limit: int = 100, offset: int = 0, _auth: bool = Depends(r
 @app.get("/api/policy")
 async def get_policy(_auth: bool = Depends(require_auth)):
     return load_policy(WORKSPACE)
+
+
+class PolicyUpdate(BaseModel):
+    mode: Literal["monitor", "allow", "confirm"] | None = None
+    rules: dict | None = None
+    protected_paths: list[str] | None = None
+
+
+@app.post("/api/policy")
+async def update_policy(body: PolicyUpdate, _auth: bool = Depends(require_auth)):
+    policy = load_policy(WORKSPACE)
+    if body.mode is not None:
+        policy["mode"] = body.mode
+    if body.rules is not None:
+        policy.setdefault("rules", {}).update(body.rules)
+    if body.protected_paths is not None:
+        policy["protected_paths"] = body.protected_paths
+    # Save
+    from policy import policy_file_path
+    import json as _json
+    path = policy_file_path(WORKSPACE)
+    with open(path, "w", encoding="utf-8") as f:
+        _json.dump(policy, f, indent=2, ensure_ascii=False)
+    return policy
 
 
 @app.get("/api/snapshots")
@@ -1116,7 +1194,7 @@ async def delete_automation_job(job_id: str, _auth: bool = Depends(require_auth)
 
 
 @app.post("/api/automation/jobs/{job_id}/run")
-async def run_automation_job_now(job_id: str):
+async def run_automation_job_now(job_id: str, _auth: bool = Depends(require_auth)):
     try:
         return AUTOMATION.run_now(job_id)
     except FileNotFoundError as e:
@@ -1124,18 +1202,18 @@ async def run_automation_job_now(job_id: str):
 
 
 @app.get("/api/automation/logs")
-async def get_automation_logs(limit: int = 100):
+async def get_automation_logs(limit: int = 100, _auth: bool = Depends(require_auth)):
     return {"items": list_logs(WORKSPACE, limit=limit)}
 
 
 @app.get("/api/services")
-async def get_hosted_services():
+async def get_hosted_services(_auth: bool = Depends(require_auth)):
     data = SERVICES.refresh()
     return {"items": data.get("items", [])}
 
 
 @app.post("/api/services")
-async def create_hosted_service(body: HostedServiceCreate):
+async def create_hosted_service(body: HostedServiceCreate, _auth: bool = Depends(require_auth)):
     if len(body.name.strip()) < 2:
         raise HTTPException(status_code=400, detail="name must be at least 2 characters")
     if len(body.command.strip()) < 1:
@@ -1156,7 +1234,7 @@ async def create_hosted_service(body: HostedServiceCreate):
 
 
 @app.post("/api/services/{service_id}")
-async def update_hosted_service(service_id: str, body: HostedServiceUpdate):
+async def update_hosted_service(service_id: str, body: HostedServiceUpdate, _auth: bool = Depends(require_auth)):
     try:
         return update_service(
             WORKSPACE,
@@ -1176,7 +1254,7 @@ async def update_hosted_service(service_id: str, body: HostedServiceUpdate):
 
 
 @app.delete("/api/services/{service_id}")
-async def delete_hosted_service(service_id: str):
+async def delete_hosted_service(service_id: str, _auth: bool = Depends(require_auth)):
     try:
         delete_service(WORKSPACE, service_id)
         return {"status": "deleted", "service_id": service_id}
@@ -1185,7 +1263,7 @@ async def delete_hosted_service(service_id: str):
 
 
 @app.post("/api/services/{service_id}/start")
-async def start_hosted_service(service_id: str):
+async def start_hosted_service(service_id: str, _auth: bool = Depends(require_auth)):
     try:
         return SERVICES.start(service_id)
     except FileNotFoundError as e:
@@ -1195,7 +1273,7 @@ async def start_hosted_service(service_id: str):
 
 
 @app.post("/api/services/{service_id}/stop")
-async def stop_hosted_service(service_id: str):
+async def stop_hosted_service(service_id: str, _auth: bool = Depends(require_auth)):
     try:
         return SERVICES.stop(service_id)
     except FileNotFoundError as e:
@@ -1203,7 +1281,7 @@ async def stop_hosted_service(service_id: str):
 
 
 @app.post("/api/services/{service_id}/restart")
-async def restart_hosted_service(service_id: str):
+async def restart_hosted_service(service_id: str, _auth: bool = Depends(require_auth)):
     try:
         return SERVICES.restart(service_id)
     except FileNotFoundError as e:
@@ -1213,9 +1291,32 @@ async def restart_hosted_service(service_id: str):
 
 
 @app.get("/api/services/{service_id}/logs")
-async def get_hosted_service_logs(service_id: str, lines: int = 120):
+async def get_hosted_service_logs(service_id: str, lines: int = 120, _auth: bool = Depends(require_auth)):
     rows = read_service_logs(WORKSPACE, service_id, lines=lines)
     return {"service_id": service_id, "lines": rows}
+
+
+# ── Notification channels (stub — channels not yet implemented) ───────────────
+
+@app.get("/api/notifications/channels")
+async def list_notification_channels(_auth: bool = Depends(require_auth)):
+    """List configured notification channels. Channels are not yet implemented."""
+    return {"items": [], "note": "Notification channels are not yet implemented. Coming in a future release."}
+
+
+@app.post("/api/notifications/channels")
+async def create_notification_channel(_auth: bool = Depends(require_auth)):
+    raise HTTPException(status_code=501, detail="Notification channels are not yet implemented")
+
+
+@app.delete("/api/notifications/channels/{channel_id}")
+async def delete_notification_channel(channel_id: str, _auth: bool = Depends(require_auth)):
+    raise HTTPException(status_code=501, detail="Notification channels are not yet implemented")
+
+
+@app.post("/api/notifications/test")
+async def test_notification(_auth: bool = Depends(require_auth)):
+    raise HTTPException(status_code=501, detail="Notification channels are not yet implemented")
 
 
 # ── Cloud node contract endpoints (must register before static mount) ─────────
@@ -1263,7 +1364,7 @@ async def well_known_nexus_cloud(request: Request):
 
 
 @app.get("/api/cloud/discovery")
-async def cloud_discovery(request: Request):
+async def cloud_discovery(request: Request, _auth: bool = Depends(require_auth)):
     """Full runtime discovery document with live counters and current registrations."""
     service_items = SERVICES.refresh().get("items", [])
     running = sum(1 for s in service_items if s.get("status") == "running")
@@ -1283,7 +1384,7 @@ async def cloud_discovery(request: Request):
 
 
 @app.post("/api/cloud/register")
-async def cloud_register_endpoint(body: CloudRegistrationRequest, request: Request):
+async def cloud_register_endpoint(body: CloudRegistrationRequest, request: Request, _auth: bool = Depends(require_auth)):
     """
     Nexusclaw registration endpoint.
     A hub POSTs here to register/link with this node.  We store a SHA-256
@@ -1319,7 +1420,7 @@ async def cloud_register_endpoint(body: CloudRegistrationRequest, request: Reque
 
 
 @app.post("/api/cloud/registrations/manual")
-async def cloud_register_manual_endpoint(body: CloudManualRegistrationRequest, request: Request):
+async def cloud_register_manual_endpoint(body: CloudManualRegistrationRequest, request: Request, _auth: bool = Depends(require_auth)):
     """Local operator endpoint for manual hub registration from the Nexus UI."""
     try:
         entry = register_hub(
@@ -1350,7 +1451,7 @@ async def cloud_register_manual_endpoint(body: CloudManualRegistrationRequest, r
 
 
 @app.post("/api/cloud/register/rotate")
-async def cloud_rotate_register_endpoint(body: CloudTokenRotateByHubRequest, request: Request):
+async def cloud_rotate_register_endpoint(body: CloudTokenRotateByHubRequest, request: Request, _auth: bool = Depends(require_auth)):
     """Compatibility endpoint for hubs rotating an existing registration token."""
     _verify_hub_callback_signature(request, await request.body())
     try:
@@ -1371,13 +1472,13 @@ async def cloud_rotate_register_endpoint(body: CloudTokenRotateByHubRequest, req
 
 
 @app.get("/api/cloud/registrations")
-async def cloud_list_registrations():
+async def cloud_list_registrations(_auth: bool = Depends(require_auth)):
     """List all hub registrations for this node."""
     return {"items": list_registrations(WORKSPACE)}
 
 
 @app.delete("/api/cloud/registrations/{hub_id}")
-async def cloud_deregister_endpoint(hub_id: str):
+async def cloud_deregister_endpoint(hub_id: str, _auth: bool = Depends(require_auth)):
     """Remove a hub registration from this node."""
     try:
         deregister_hub(WORKSPACE, hub_id)
@@ -1394,7 +1495,7 @@ async def cloud_deregister_endpoint(hub_id: str):
 
 
 @app.post("/api/cloud/registrations/{hub_id}/rotate")
-async def cloud_rotate_token(hub_id: str, body: CloudTokenRotateRequest):
+async def cloud_rotate_token(hub_id: str, body: CloudTokenRotateRequest, _auth: bool = Depends(require_auth)):
     """Rotate the node_token hash stored for an existing hub registration."""
     try:
         entry = rotate_hub_token(WORKSPACE, hub_id, body.node_token, body.rotated_by)

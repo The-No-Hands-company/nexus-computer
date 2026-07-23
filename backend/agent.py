@@ -219,17 +219,28 @@ async def run_agent_stream(
             prompt_preview = (m.get("content") or "")[:300]
             break
 
-    # Check Nexus AI reachability first
+    # Resolve model
+    selected_model = None
+    if model_id:
+        selected_model = get_model(model_id)
+    if not selected_model:
+        selected_model = get_default_model()
+
+    inference_url = selected_model.config.get("completions_url", f"{NEXUS_AI_URL}/v1/chat/completions")
+    health_url = selected_model.config.get("health_url", f"{NEXUS_AI_URL}/health")
+    model_name = selected_model.config.get("model_name", "")
+
+    # Check model reachability first
     try:
         async with httpx.AsyncClient(timeout=5.0) as probe:
-            await probe.get(f"{NEXUS_AI_URL}/health")
+            await probe.get(health_url)
     except Exception:
         yield _sse({
             "type": "error",
             "content": (
-                f"⚠️  Nexus AI is not reachable at {NEXUS_AI_URL}.\n\n"
-                "Make sure Nexus AI is running and set NEXUS_AI_URL correctly.\n"
-                "Nexus.computer uses Nexus AI as its intelligence layer."
+                f"⚠️  {selected_model.name} is not reachable at {selected_model.config.get('endpoint', inference_url)}.\n\n"
+                f"Make sure the AI service is running and check your configuration.\n"
+                f"Model: {selected_model.id} ({selected_model.provider})"
             ),
         })
         yield _sse({"type": "done"})
@@ -245,15 +256,19 @@ async def run_agent_stream(
 
         try:
             async with httpx.AsyncClient(timeout=NEXUS_AI_TIMEOUT) as http:
+                json_payload = {
+                    "messages": oai_messages,
+                    "tools": TOOLS,
+                    "tool_choice": "auto",
+                    "stream": True,
+                }
+                if model_name:
+                    json_payload["model"] = model_name
+
                 async with http.stream(
                     "POST",
-                    f"{NEXUS_AI_URL}/v1/chat/completions",
-                    json={
-                        "messages": oai_messages,
-                        "tools": TOOLS,
-                        "tool_choice": "auto",
-                        "stream": True,
-                    },
+                    inference_url,
+                    json=json_payload,
                     headers={"Accept": "text/event-stream"},
                 ) as resp:
                     resp.raise_for_status()

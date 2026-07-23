@@ -58,13 +58,21 @@ def save_deployment_config(workspace_dir: str, config: dict):
 def get_deployment_status(workspace_dir: str) -> dict:
     """Get complete deployment status for UI display."""
     config = load_deployment_config(workspace_dir)
-
+    try:
+        from cloud_registry import list_registrations
+        registrations = list_registrations(workspace_dir)
+        peers = [
+            {"hub_id": r.get("hub_id"), "hub_url": r.get("hub_url"), "label": r.get("label", "")}
+            for r in registrations
+        ]
+    except Exception:
+        peers = []
     return {
         "mode": config.get("mode", "standalone"),
         "node_id": config.get("node_id", ""),
         "federation": {
             "enabled": config.get("federation_enabled", False),
-            "peers": [],  # TODO: Load from federation registry
+            "peers": peers,
         },
         "hub": {
             "connected": config.get("hub_connection") is not None,

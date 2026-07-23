@@ -63,6 +63,31 @@ class ModelRegistry:
             },
         ))
 
+        # Register Ollama if configured
+        ollama_url = os.environ.get("OLLAMA_BASE_URL", "").rstrip("/")
+        if ollama_url:
+            # Register a generic Ollama model entry
+            ollama_model_name = os.environ.get("OLLAMA_MODEL", "llama3.2")
+            self.register(Model(
+                id="ollama",
+                name=f"Ollama ({ollama_model_name})",
+                provider="ollama",
+                capabilities={
+                    "chat": True,
+                    "code": True,
+                    "analysis": True,
+                    "creative": True,
+                    "local": True,
+                    "private": True,
+                },
+                config={
+                    "endpoint": ollama_url,
+                    "completions_url": f"{ollama_url}/v1/chat/completions",
+                    "health_url": f"{ollama_url}/api/tags",
+                    "model_name": ollama_model_name,
+                },
+            ))
+
     def register(self, model: Model):
         self.models[model.id] = model
 
@@ -73,7 +98,7 @@ class ModelRegistry:
         return list(self.models.values())
 
     def get_default_model(self) -> Model:
-        return self.models["nexus-ai"]
+        return self.models.get("nexus-ai") or next(iter(self.models.values()))
 
     async def check_availability(self, model: Model) -> bool:
         try:
